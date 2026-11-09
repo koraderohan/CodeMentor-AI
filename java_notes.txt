@@ -1,0 +1,25 @@
+JAVA OOP NOTES
+
+Class:
+A class is a blueprint or template used to create objects.
+
+Object:
+An object is an instance of a class.
+
+Encapsulation:
+Encapsulation is the process of wrapping data and methods together
+inside a class. Access modifiers such as private, public and protected
+are used to control access.
+
+Inheritance:
+Inheritance allows one class to acquire properties and methods of
+another class. The extends keyword is used for class inheritance.
+
+Polymorphism:
+Polymorphism means one interface or method can have multiple forms.
+Method overloading is compile-time polymorphism and method overriding
+is runtime polymorphism.
+
+Abstraction:
+Abstraction means hiding implementation details and showing only
+essential information to the user.
