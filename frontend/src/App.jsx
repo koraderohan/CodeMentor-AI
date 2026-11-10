@@ -136,6 +136,45 @@ function MarkdownContent({ content }) {
 }
 
 
+const PROGRESS_STORAGE_KEY = "study-buddy-progress";
+const DEFAULT_PROGRESS = {
+  questions: 0,
+  quizzes: 0,
+  helpful: 0,
+};
+
+function normalizeProgress(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_PROGRESS;
+  }
+
+  return Object.keys(DEFAULT_PROGRESS).reduce(
+    (progress, key) => {
+      const count = value[key];
+
+      if (
+        Number.isFinite(count) &&
+        count >= 0
+      ) {
+        progress[key] = Math.floor(count);
+      }
+
+      return progress;
+    },
+    { ...DEFAULT_PROGRESS }
+  );
+}
+
+function loadProgress() {
+  try {
+    const saved = localStorage.getItem(PROGRESS_STORAGE_KEY);
+    return normalizeProgress(saved ? JSON.parse(saved) : null);
+  } catch {
+    return { ...DEFAULT_PROGRESS };
+  }
+}
+
+
 // ---------- MAIN APP ----------
 
 function App() {
@@ -148,29 +187,8 @@ function App() {
   const [lastUserMessage, setLastUserMessage] = useState("");
 
   const [feedback, setFeedback] = useState({});
-
-  const [progress, setProgress] = useState(() => {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem("study-buddy-progress") ||
-          '{"questions":0,"quizzes":0,"helpful":0}'
-      );
-      if (
-        saved &&
-        Number.isFinite(saved.questions) &&
-        Number.isFinite(saved.quizzes) &&
-        Number.isFinite(saved.helpful) &&
-        saved.questions >= 0 &&
-        saved.quizzes >= 0 &&
-        saved.helpful >= 0
-      ) {
-        return saved;
-      }
-    } catch {
-      // Use the in-memory default below when browser storage is unavailable.
-    }
-    return { questions: 0, quizzes: 0, helpful: 0 };
-  });
+  const feedbackStatusRef = useRef({});
+  const [progress, setProgress] = useState(loadProgress);
 
   const abortControllerRef = useRef(null);
 
@@ -194,16 +212,17 @@ function App() {
 
   const updateProgress = (changes) => {
     setProgress((current) => {
+      const nextChanges =
+        typeof changes === "function"
+          ? changes(current)
+          : changes;
       const next = {
         ...current,
-        ...changes,
+        ...nextChanges,
       };
 
       try {
-        localStorage.setItem(
-          "study-buddy-progress",
-          JSON.stringify(next)
-        );
+        localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(next));
       } catch {
         // Progress remains available for the current session.
       }
@@ -269,29 +288,9 @@ function App() {
         },
       ]);
 
-      setProgress((current) => {
-        const next = {
-          ...current,
-
-          questions: current.questions + 1,
-
-          quizzes:
-            mode === "quiz"
-              ? current.quizzes + 1
-              : current.quizzes,
-        };
-
-        try {
-          localStorage.setItem(
-            "study-buddy-progress",
-            JSON.stringify(next)
-          );
-        } catch {
-          // Progress remains available for the current session.
-        }
-
-        return next;
-      });
+      updateProgress((current) => ({
+        questions: current.questions + 1,
+      }));
 
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -388,6 +387,14 @@ function App() {
   // ---------- FEEDBACK ----------
 
   const sendFeedback = async (index, rating) => {
+    const currentStatus = feedbackStatusRef.current[index];
+
+    if (currentStatus) {
+      return;
+    }
+
+    feedbackStatusRef.current[index] = "pending";
+
     try {
       await axios.post(
         "/api/feedback",
@@ -405,12 +412,15 @@ function App() {
       }));
 
       if (rating === "helpful") {
-        updateProgress({
-          helpful: progress.helpful + 1,
-        });
+        updateProgress((current) => ({
+          helpful: current.helpful + 1,
+        }));
       }
 
+      feedbackStatusRef.current[index] = rating;
     } catch {
+      delete feedbackStatusRef.current[index];
+
       setFeedback((current) => ({
         ...current,
         [index]: "Feedback unavailable",
@@ -456,6 +466,21 @@ function App() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+
+  const handleModeChange = (nextMode) => {
+    if (nextMode === mode) {
+      return;
+    }
+
+    if (nextMode === "quiz") {
+      updateProgress((current) => ({
+        quizzes: current.quizzes + 1,
+      }));
+    }
+
+    setMode(nextMode);
   };
 
 
@@ -538,7 +563,7 @@ function App() {
                   mode === option ? "selected" : ""
                 }
                 key={option}
-                onClick={() => setMode(option)}
+                onClick={() => handleModeChange(option)}
                 disabled={loading}
               >
                 {option}
