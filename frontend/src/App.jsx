@@ -2,11 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import axios from "axios";
 import mermaid from "mermaid";
 import ReactMarkdown from "react-markdown";
+import { normalizeMermaidCode } from "./mermaidUtils";
 
 // ---------- MERMAID CONFIGURATION ----------
 
 mermaid.initialize({
   startOnLoad: false,
+  suppressErrorRendering: true,
   securityLevel: "strict",
   theme: "base",
   themeVariables: {
@@ -21,40 +23,53 @@ mermaid.initialize({
 
 // ---------- MERMAID DIAGRAM ----------
 
+const loggedMermaidFailures = new Set();
+
 function MermaidDiagram({ chart }) {
   const containerRef = useRef(null);
+  const [failedChart, setFailedChart] = useState(null);
   const diagramId = useId().replace(/:/g, "");
+  const normalizedChart = normalizeMermaidCode(chart);
+  const error = failedChart === normalizedChart;
 
   useEffect(() => {
     let active = true;
 
     mermaid
-      .render(`diagram-${diagramId}`, chart)
+      .render(`diagram-${diagramId}`, normalizedChart)
       .then(({ svg, bindFunctions }) => {
         if (!active || !containerRef.current) return;
 
+        setFailedChart(null);
         containerRef.current.innerHTML = svg;
         bindFunctions?.(containerRef.current);
       })
-      .catch(() => {
-        console.error("Mermaid rendering failed.");
+      .catch((renderError) => {
+        if (active) setFailedChart(normalizedChart);
+
+        if (!loggedMermaidFailures.has(normalizedChart)) {
+          loggedMermaidFailures.add(normalizedChart);
+          console.error("Mermaid rendering failed.", renderError);
+        }
 
         if (active && containerRef.current) {
-          containerRef.current.textContent =
-            "Diagram could not be rendered.";
+          containerRef.current.replaceChildren();
         }
       });
 
     return () => {
       active = false;
     };
-  }, [chart, diagramId]);
+  }, [normalizedChart, diagramId]);
 
   return (
-    <div
-      className="mermaid-diagram"
-      ref={containerRef}
-    />
+    <div className="mermaid-diagram" ref={containerRef}>
+      {error && (
+        <p role="alert">
+          This Mermaid diagram could not be rendered.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -117,7 +132,7 @@ function MarkdownContent({ content }) {
           if (language === "mermaid") {
             return (
               <MermaidDiagram
-                chart={String(children).trim()}
+                chart={String(children)}
               />
             );
           }
